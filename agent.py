@@ -129,6 +129,8 @@ def train():
     game=SnakeGameAI()
 
     while True:
+        if agent.n_games==500:
+            game.clock.tick(40)
         # Get Old State
         state_old=agent.get_state(game)
 
