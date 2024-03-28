@@ -1,0 +1,221 @@
+import pygame
+import random
+import numpy as np
+from collections import deque
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.optimizers import Adam
+import time
+# Initialize pygame
+pygame.init()
+
+# Constants for the game
+WIDTH, HEIGHT = 600, 400
+GRID_SIZE = 20
+GRID_WIDTH = WIDTH // GRID_SIZE
+GRID_HEIGHT = HEIGHT // GRID_SIZE
+FONT = pygame.font.Font(None, 36)
+WHITE = (255, 255, 255)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+UP = (0, -1)
+DOWN = (0, 1)
+LEFT = (-1, 0)
+RIGHT = (1, 0)
+
+# Snake class for handling snake movements
+class Snake:
+    def __init__(self):
+        self.score = 0
+        self.length = 1
+        self.positions = [((WIDTH // 2), (HEIGHT // 2))]
+        self.direction = random.choice([UP, DOWN, LEFT, RIGHT])
+        self.color = GREEN
+
+    def get_head_position(self):
+        return self.positions[0]
+
+    def turn(self, point):
+        if self.length > 1 and (point[0] * -1, point[1] * -1) == self.direction:
+            return
+        else:
+            self.direction = point
+
+    def move(self):
+        cur = self.get_head_position()
+        x, y = self.direction
+        new = (((cur[0] + (x * GRID_SIZE)) % WIDTH), (cur[1] + (y * GRID_SIZE)) % HEIGHT)
+
+        if len(self.positions) > 2 and new in self.positions[2:]:
+            self.reset()
+            return -150  # Collision occurred
+        else:
+            self.positions.insert(0, new)
+            if len(self.positions) > self.length:
+                self.positions.pop()
+
+        return 0  # No collision
+
+    def reset(self):
+        self.length = 1
+        self.positions = [((WIDTH // 2), (HEIGHT // 2))]
+        self.direction = random.choice([UP, DOWN, LEFT, RIGHT])
+        self.score = 0
+
+    def draw(self, surface):
+        for p in self.positions:
+            r = pygame.Rect((p[0], p[1]), (GRID_SIZE, GRID_SIZE))
+            pygame.draw.rect(surface, self.color, r)
+            pygame.draw.rect(surface, WHITE, r, 1)
+
+# Food class for handling food items
+class Food:
+    def __init__(self):
+        self.position = (0, 0)
+        self.color = RED
+        self.randomize_position()
+
+    def randomize_position(self):
+        self.position = (random.randint(0, GRID_WIDTH - 1) * GRID_SIZE, random.randint(0, GRID_HEIGHT - 1) * GRID_SIZE)
+
+    def draw(self, surface):
+        r = pygame.Rect((self.position[0], self.position[1]), (GRID_SIZE, GRID_SIZE))
+        pygame.draw.rect(surface, self.color, r)
+        pygame.draw.rect(surface, self.color, r, 1)
+
+# DQN agent for learning and decision making
+class DQNAgent:
+    def __init__(self, state_size, action_size):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.memory = deque(maxlen=2000)
+        self.gamma = 0.95
+        self.epsilon = 1.0
+        self.epsilon_min = 0.01
+        self.epsilon_decay = 0.995
+        self.learning_rate = 0.01
+        self.model = self._build_model()
+
+    def _build_model(self):
+        model = Sequential()
+        model.add(Dense(24, input_dim=self.state_size, activation='relu'))
+        model.add(Dense(24, activation='relu'))
+        model.add(Dense(self.action_size, activation='linear'))
+        model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
+        return model
+
+    def remember(self, state, action, reward, next_state, done):
+        self.memory.append((state, action, reward, next_state, done))
+
+    def act(self, state):
+        if np.random.rand() <= self.epsilon:
+            return random.randrange(self.action_size)
+        act_values = self.model.predict(state)
+        return np.argmax(act_values[0])
+
+    def replay(self, batch_size):
+        minibatch = random.sample(self.memory, batch_size)
+        for state, action, reward, next_state, done in minibatch:
+            target = reward
+            if not done:
+                target = (reward + self.gamma * np.amax(self.model.predict(next_state)[0]))
+            target_f = self.model.predict(state)
+            target_f[0][action] = target
+            self.model.fit(state, target_f, epochs=1, verbose=0)
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+
+def get_state(snake, food):
+    head_position = snake.get_head_position()
+    snake_position = snake.positions[1] if len(snake.positions) > 1 else snake.get_head_position()
+    state = np.array(head_position + food.position + snake_position) / np.array([WIDTH, HEIGHT, WIDTH, HEIGHT, WIDTH, HEIGHT])
+    return np.reshape(state, [1, 6])
+
+# Initialize game objects
+snake = Snake()
+food = Food()
+agent = DQNAgent(state_size=6, action_size=4)  # State size is 6 (head position + food position + snake positions), action size is 4 (UP, DOWN, LEFT, RIGHT)
+
+def draw_score(surface, score):
+    score_text = FONT.render(f"Score: {score}", True, (0,0,0))
+    surface.blit(score_text, (10, 10))
+
+# Main loop
+window = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Snake Game")
+clock = pygame.time.Clock()
+flagTrain=1
+generations = 1  # Initialize generations
+reward = 0
+while True:
+    window.fill(WHITE)
+    snake.move()
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+
+    if snake.get_head_position() == food.position:
+        snake.length += 1
+        snake.score += 50
+        food.randomize_position()
+
+    prev_distance = np.abs(np.array(snake.get_head_position()) - np.array(food.position)).sum()
+   
+    state = get_state(snake, food)
+
+    action = agent.act(state)
+    if action == 0:
+        snake.turn(UP)
+    elif action == 1:
+        snake.turn(DOWN)
+    elif action == 2:
+        snake.turn(LEFT)
+    elif action == 3:
+        snake.turn(RIGHT)
+
+    collision_reward = snake.move()
+    
+
+    new_distance = np.abs(np.array(snake.get_head_position()) - np.array(food.position)).sum()
+    if new_distance < prev_distance:
+        reward += 0  # Moving closer to food
+    elif new_distance > prev_distance:
+        reward -= 0  # Moving away from food
+    
+    
+
+    
+
+    if collision_reward == -150:
+        snake.reset()
+
+    next_state = get_state(snake, food)
+    done = False
+
+    agent.remember(state, action, reward, next_state, done)
+
+
+    if len(agent.memory) ==500 and generations<=25:
+        print("replaying")
+        agent.replay(500)
+        #time.sleep(5)
+        agent.memory.clear()
+        generations+=1
+        
+
+    snake.draw(window)
+    food.draw(window)
+    draw_score(window, snake.score)
+
+    # Display generation number on the bottom right of the screen
+    gen_text = FONT.render(f"Generation: {generations}", True, (0, 0, 0))
+    window.blit(gen_text, (WIDTH - 180, HEIGHT - 40))
+    reward_text = FONT.render(f"Reward: {reward}", True, (0, 0, 0))
+    window.blit(reward_text, (WIDTH - 180, HEIGHT - 80))
+    pygame.display.update()
+    clock.tick(120)
+    if(generations==5):
+        clock.tick(10)
+# Clean up
+pygame.quit()
