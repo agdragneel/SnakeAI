@@ -3,6 +3,8 @@ import random
 import numpy as np
 from game import SnakeGameAI,Direction,Point
 from collections import deque
+from model import Linear_Qnet,QTrainer
+from helper import plot
 '''
 State: 11 Values [danger_straight,danger_right, danger left,
                     direction_up,direction_down,direction_right,direction_left
@@ -21,11 +23,11 @@ class Agent:
     def __init__(self):
         self.n_games=0
         self.epsilon=0          #  Parameter to control randomness (Exploration vs Exploitation Tradeoff)
-        self.gamma=0            #  Discount Rate
+        self.gamma=0.9            #  Discount Rate
         self.memory=deque(maxlen=MAX_MEMORY)       # Deques automatically remove element if memory size is exceeded.and
         
-        self.model=None #TODO
-        self.trainer=None #TODO
+        self.model=Linear_Qnet(11,256,3) 
+        self.trainer=QTrainer(self.model,lr=LR,gamma=self.gamma)
         
 
 
@@ -86,14 +88,14 @@ class Agent:
 
 
     def remember(self,state,action,reward,next_state,done):
-        self.memory.append(state,action,reward,next_state,done)
+        self.memory.append((state,action,reward,next_state,done))
     
     def train_long_memory(self):
         if len(self.memory) > BATCH_SIZE:
             mini_sample=random.sample(self.memory,BATCH_SIZE)
         else:
             mini_sample=self.memory
-            
+
         states,actions,rewards,next_states,dones=zip(*mini_sample)
         self.trainer.train_step(states,actions,rewards,next_states,dones)
 
@@ -101,7 +103,22 @@ class Agent:
         self.trainer.train_step(state,action,reward,next_state,done)
 
     def get_action(self,state):
-        pass
+        
+        #Random moves initially. (Tradeoff between Exploration and Exploitation)
+        
+        self.epsilon=80-self.n_games
+        final_move=[0,0,0]
+
+        if random.randint(0,200) < self.epsilon:
+            move=random.randint(0,2)
+            final_move[move]=1
+        else:
+            state0=torch.tensor(state,dtype=torch.float)
+            prediction=self.model(state0)
+            move=torch.argmax(prediction).item()
+            final_move[move]=1
+            
+        return final_move
 
 def train():
     plot_scores=[]
@@ -142,7 +159,11 @@ def train():
             
             print('Game',agent.n_games,'Score:',score,'Record',record)
 
-            #TODO: plot
+            plot_scores.append(score)
+            total_score+=score
+            mean_score=total_score/agent.n_games
+            plot_mean_scores.append(mean_score)
+            plot(plot_scores, plot_mean_scores)
                 
 
 

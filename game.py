@@ -1,5 +1,6 @@
 import pygame
 import random
+import numpy as np
 from enum import Enum
 from collections import namedtuple
 
@@ -30,7 +31,7 @@ BLUE2 = (0, 100, 255)
 BLACK = (0,0,0)
 
 BLOCK_SIZE = 20
-SPEED = 20
+SPEED = 60
 
 class SnakeGameAI:
     
@@ -43,19 +44,20 @@ class SnakeGameAI:
         self.clock = pygame.time.Clock()
         self.reset()
         
-        # init game state
-        def reset(self):
-            self.direction = Direction.RIGHT
         
-            self.head = Point(self.w/2, self.h/2)
-            self.snake = [self.head, 
-                      Point(self.head.x-BLOCK_SIZE, self.head.y),
-                      Point(self.head.x-(2*BLOCK_SIZE), self.head.y)]
+    def reset(self):
+            # init game state
+        self.direction = Direction.RIGHT
         
-            self.score = 0
-            self.food = None
-            self._place_food()
-            self.frame_iteration=0
+        self.head = Point(self.w/2, self.h/2)
+        self.snake = [self.head, 
+                    Point(self.head.x-BLOCK_SIZE, self.head.y),
+                    Point(self.head.x-(2*BLOCK_SIZE), self.head.y)]
+        
+        self.score = 0
+        self.food = None
+        self._place_food()
+        self.frame_iteration=0
         
     def _place_food(self):
         x = random.randint(0, (self.w-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE 
@@ -88,6 +90,7 @@ class SnakeGameAI:
         # 4. place new food or just move
         if self.head == self.food:
             self.score += 1
+            reward=10
             self._place_food()
         else:
             self.snake.pop()
@@ -123,7 +126,7 @@ class SnakeGameAI:
         self.display.blit(text, [0, 0])
         pygame.display.flip()
         
-    def _move(self, direction):
+    def _move(self, action):
 
         # [straight,right,left]
         clock_wise=[Direction.RIGHT,Direction.DOWN,Direction.LEFT,Direction.UP]
